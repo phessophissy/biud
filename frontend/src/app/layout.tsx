@@ -4,6 +4,10 @@ import '../styles/globals.css';
 export const metadata: Metadata = {
   title: 'BiUD - Bitcoin Username Domain',
   description: 'Register your unique .sBTC name on the Bitcoin blockchain',
+  icons: {
+    icon: '/favicon.svg',
+    apple: '/favicon.svg',
+  },
 };
 
 export default function RootLayout({
@@ -14,9 +18,20 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
         <script
           dangerouslySetInnerHTML={{
             __html: `
+              // Theme initialization - check localStorage or system preference
+              (function() {
+                try {
+                  const theme = localStorage.getItem('biud-theme');
+                  if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                    document.documentElement.classList.add('dark');
+                  }
+                } catch (e) {}
+              })();
+              
               // Prevent ethereum property conflict with browser extensions
               if (typeof window !== 'undefined') {
                 const originalDefineProperty = Object.defineProperty;

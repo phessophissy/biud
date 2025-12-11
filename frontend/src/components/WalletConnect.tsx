@@ -129,7 +129,7 @@ export default function WalletConnect({ onConnect, onDisconnect }: WalletConnect
   if (address) {
     return (
       <div className="flex items-center gap-3">
-        <span className="text-sm text-gray-600">
+        <span className="text-sm text-gray-600 dark:text-gray-300">
           {address.slice(0, 6)}...{address.slice(-4)}
         </span>
         <button

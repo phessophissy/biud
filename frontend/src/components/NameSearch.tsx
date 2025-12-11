@@ -63,10 +63,10 @@ export default function NameSearch({ onNameSelected }: NameSearchProps) {
             onChange={(e) => setLabel(e.target.value.toLowerCase())}
             onKeyPress={handleKeyPress}
             placeholder="Search for a name..."
-            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-stacks focus:border-transparent outline-none text-lg"
+            className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-stacks focus:border-transparent outline-none text-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 transition-colors"
             maxLength={32}
           />
-          <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-medium">
+          <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 font-medium">
             .sBTC
           </span>
         </div>
@@ -81,18 +81,18 @@ export default function NameSearch({ onNameSelected }: NameSearchProps) {
 
       {/* Result Display */}
       {result && (
-        <div className={`mt-4 p-4 rounded-lg ${
+        <div className={`mt-4 p-4 rounded-lg transition-colors ${
           result.error 
-            ? 'bg-red-50 border border-red-200' 
+            ? 'bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800' 
             : result.available 
-              ? 'bg-green-50 border border-green-200' 
-              : 'bg-yellow-50 border border-yellow-200'
+              ? 'bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800' 
+              : 'bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800'
         }`}>
           {result.error ? (
-            <p className="text-red-700">{result.error}</p>
+            <p className="text-red-700 dark:text-red-400">{result.error}</p>
           ) : (
             <>
-              <p className="font-semibold text-lg">
+              <p className="font-semibold text-lg text-gray-900 dark:text-white">
                 {getFullName(label)}
               </p>
               {result.available ? (
@@ -100,7 +100,7 @@ export default function NameSearch({ onNameSelected }: NameSearchProps) {
                   <span className="inline-block px-2 py-1 bg-green-500 text-white text-sm rounded">
                     Available
                   </span>
-                  <p className="mt-2 text-gray-600">
+                  <p className="mt-2 text-gray-600 dark:text-gray-300">
                     Registration fee: <strong>{formatSTX(result.fee)} STX</strong>
                   </p>
                 </div>
