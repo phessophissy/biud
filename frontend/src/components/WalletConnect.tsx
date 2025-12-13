@@ -8,6 +8,7 @@
 
 import { useState, useEffect } from 'react';
 import { AppConfig, UserSession, showConnect } from '@stacks/connect';
+import { getPrimaryName } from '../services/biud';
 
 const appConfig = new AppConfig(['store_write', 'publish_data']);
 
@@ -32,6 +33,7 @@ interface WalletConnectProps {
 
 export default function WalletConnect({ onConnect, onDisconnect }: WalletConnectProps) {
   const [address, setAddress] = useState<string | null>(null);
+  const [primaryName, setPrimaryName] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -41,6 +43,29 @@ export default function WalletConnect({ onConnect, onDisconnect }: WalletConnect
     // Also check for pending sign-in (handles redirect flow on mobile)
     handlePendingSignIn();
   }, []);
+
+  // Fetch primary name when address changes
+  useEffect(() => {
+    if (address) {
+      fetchPrimaryName(address);
+    } else {
+      setPrimaryName(null);
+    }
+  }, [address]);
+
+  const fetchPrimaryName = async (addr: string) => {
+    try {
+      const name = await getPrimaryName(addr);
+      if (name) {
+        setPrimaryName(name.fullName);
+      } else {
+        setPrimaryName(null);
+      }
+    } catch (error) {
+      console.error('Error fetching primary name:', error);
+      setPrimaryName(null);
+    }
+  };
 
   const handlePendingSignIn = async () => {
     if (typeof window === 'undefined' || !userSession) return;
@@ -165,6 +190,7 @@ export default function WalletConnect({ onConnect, onDisconnect }: WalletConnect
     }
     
     clearSession();
+    setPrimaryName(null);
     onDisconnect?.();
   };
 
@@ -182,9 +208,16 @@ export default function WalletConnect({ onConnect, onDisconnect }: WalletConnect
   if (address) {
     return (
       <div className="flex items-center gap-3">
-        <span className="text-sm text-gray-600 dark:text-gray-300">
-          {address.slice(0, 6)}...{address.slice(-4)}
-        </span>
+        <div className="flex flex-col items-end">
+          {primaryName ? (
+            <span className="text-sm font-semibold text-bitcoin">
+              {primaryName}
+            </span>
+          ) : null}
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            {address.slice(0, 6)}...{address.slice(-4)}
+          </span>
+        </div>
         <button
           onClick={handleDisconnect}
           className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-colors"

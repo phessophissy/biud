@@ -196,6 +196,50 @@ export async function getLabelById(nameId: number): Promise<string | null> {
   return parsed.value || null;
 }
 
+/**
+ * Get the primary/display name for an address
+ * Returns the first registered name (will use get-primary-name in v4)
+ */
+export async function getPrimaryName(address: string): Promise<{
+  label: string;
+  fullName: string;
+} | null> {
+  try {
+    // Get all name IDs owned by this address
+    const nameIds = await getNamesByOwner(address);
+    
+    if (!nameIds || nameIds.length === 0) {
+      return null;
+    }
+    
+    // Get the first name ID (primary)
+    // Handle both raw number and object with value property
+    const firstEntry = nameIds[0];
+    const firstNameId = typeof firstEntry === 'object' && firstEntry !== null 
+      ? (firstEntry as any).value 
+      : firstEntry;
+    
+    if (firstNameId === undefined || firstNameId === null) {
+      return null;
+    }
+    
+    // Get the label for this name ID
+    const label = await getLabelById(firstNameId);
+    
+    if (!label) {
+      return null;
+    }
+    
+    return {
+      label,
+      fullName: `${label}.sBTC`,
+    };
+  } catch (error) {
+    console.error('Error fetching primary name:', error);
+    return null;
+  }
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // TRANSACTION OPTIONS (For use with @stacks/connect)
 // ════════════════════════════════════════════════════════════════════════════
