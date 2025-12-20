@@ -233,6 +233,39 @@
   )
 )
 
+;; Validate subdomain label: supports sub.parent format
+(define-private (validate-subdomain-label (label (string-utf8 32)))
+  (let
+    (
+      (dot-index (index-of label "."))
+    )
+    (if (is-some dot-index)
+      ;; It's a subdomain
+      (let
+        (
+          (parent-end (unwrap-panic dot-index))
+          (sub-len (len label))
+          (parent (unwrap! (slice? label u0 parent-end) ERR_INVALID_LABEL))
+          (subdomain-start (+ parent-end u1))
+          (subdomain (unwrap! (slice? label subdomain-start sub-len) ERR_INVALID_LABEL))
+        )
+        ;; Check parent and subdomain not empty
+        (asserts! (> (len parent) u0) ERR_INVALID_LABEL)
+        (asserts! (> (len subdomain) u0) ERR_INVALID_LABEL)
+        ;; Validate parent and subdomain as valid labels
+        (try! (validate-label parent))
+        (try! (validate-label subdomain))
+        (ok { is-subdomain: true, parent: parent, subdomain: subdomain })
+      )
+      ;; Not a subdomain
+      (begin
+        (try! (validate-label label))
+        (ok { is-subdomain: false, parent: "", subdomain: "" })
+      )
+    )
+  )
+)
+
 ;; Generate the next name ID
 (define-private (get-next-name-id)
   (let
@@ -361,71 +394,108 @@
   (let
     (
       ;; Validate the label format
-      (validation-result (try! (validate-label label)))
-      ;; Generate the full name with TLD
-      (full-name (unwrap! (as-max-len? (concat label u".sBTC") u64) ERR_INVALID_LABEL))
-      ;; Check if name is premium
-      (is-premium (check-is-premium label))
-      ;; Calculate the registration fee
-      (reg-fee (calculate-registration-fee is-premium))
-      ;; Get existing registration if any
-      (existing (map-get? name-registry { label: label }))
-      ;; Generate new name ID
-      (new-name-id (get-next-name-id))
-      ;; Calculate expiry height
-      (expiry (+ block-height REGISTRATION_PERIOD))
+      (validation-result (try! (validate-subdomain-label label)))
+      ;; Check parent ownership if subdomain
+      (is-subdomain (get is-subdomain validation-result))
     )
-    ;; Check if name is available
-    (match existing
-      name-record
-      ;; Name exists - check if expired
-      (begin
-        (asserts! (is-name-expired (get expiry-height name-record)) ERR_NAME_TAKEN)
-        ;; Remove from previous owner's list
-        (try! (remove-name-from-owner (get owner name-record) (get name-id name-record)))
+    ;; If subdomain, verify parent ownership
+    (if is-subdomain
+      (let
+        (
+          (parent (get parent validation-result))
+          (parent-record (unwrap! (map-get? name-registry { label: parent }) ERR_NAME_NOT_FOUND))
+        )
+        (asserts! (is-eq (get owner parent-record) tx-sender) ERR_NOT_OWNER)
+        (asserts! (<= block-height (get expiry-height parent-record)) ERR_NAME_EXPIRED)
+        true
       )
-      ;; Name doesn't exist - proceed
       true
     )
-    
-    ;; Collect registration fee
-    (asserts! (> reg-fee u0) ERR_ZERO_FEE)
-    (try! (distribute-fees reg-fee))
-    
-    ;; Create the name record
-    (map-set name-registry
-      { label: label }
-      {
+    ;; Generate the full name with TLD
+    (let
+      (
+        (full-name (if is-subdomain
+          (let
+            (
+              (parent (get parent validation-result))
+              (subdomain (get subdomain validation-result))
+            )
+            (unwrap! (as-max-len? (concat (concat subdomain ".") (concat parent ".sBTC")) u64) ERR_INVALID_LABEL)
+          )
+          (unwrap! (as-max-len? (concat label ".sBTC") u64) ERR_INVALID_LABEL)
+        ))
+        ;; Check if name is premium
+        (is-premium (check-is-premium label))
+        ;; Calculate the registration fee
+        (reg-fee (calculate-registration-fee is-premium))
+        ;; Get existing registration if any
+        (existing (map-get? name-registry { label: label }))
+        ;; Generate new name ID
+        (new-name-id (get-next-name-id))
+        ;; Calculate expiry height
+        (expiry (+ block-height REGISTRATION_PERIOD))
+      )
+      ;; Check if name is available
+      (match existing
+        name-record
+        ;; Name exists - check if expired
+        (begin
+          (asserts! (is-name-expired (get expiry-height name-record)) ERR_NAME_TAKEN)
+          ;; Remove from previous owner's list
+          (try! (remove-name-from-owner (get owner name-record) (get name-id name-record)))
+        )
+        ;; Name doesn't exist - proceed
+        true
+      )
+
+      ;; Collect registration fee
+      (asserts! (> reg-fee u0) ERR_ZERO_FEE)
+      (try! (distribute-fees reg-fee))
+
+      ;; Create the name record
+      (map-set name-registry
+        { label: label }
+        {
+          name-id: new-name-id,
+          full-name: full-name,
+          owner: tx-sender,
+          resolver: none,
+          expiry-height: expiry,
+          is-premium: is-premium,
+          created-at: block-height,
+          last-renewed: block-height
+        }
+      )
+
+      ;; Set reverse lookup
+      (map-set name-id-to-label
+        { name-id: new-name-id }
+        { label: label }
+      )
+
+      ;; Add to owner's name list
+      (try! (add-name-to-owner tx-sender new-name-id))
+
+      ;; Emit registration event
+      (emit-name-registered label full-name tx-sender new-name-id expiry reg-fee is-premium)
+
+      (ok {
         name-id: new-name-id,
         full-name: full-name,
-        owner: tx-sender,
-        resolver: none,
         expiry-height: expiry,
-        is-premium: is-premium,
-        created-at: block-height,
-        last-renewed: block-height
-      }
+        fee-paid: reg-fee
+      })
     )
-    
-    ;; Set reverse lookup
-    (map-set name-id-to-label
-      { name-id: new-name-id }
-      { label: label }
-    )
-    
-    ;; Add to owner's name list
-    (try! (add-name-to-owner tx-sender new-name-id))
-    
-    ;; Emit registration event
-    (emit-name-registered label full-name tx-sender new-name-id expiry reg-fee is-premium)
-    
-    (ok {
-      name-id: new-name-id,
-      full-name: full-name,
-      expiry-height: expiry,
-      fee-paid: reg-fee
-    })
   )
+)
+
+;; Register multiple names in one transaction (up to 10)
+(define-private (register-name-wrapper (label (string-utf8 32)))
+  (register-name label)
+)
+
+(define-public (register-multiple-names (labels (list 10 (string-utf8 32))))
+  (ok (map register-name-wrapper labels))
 )
 
 ;; ════════════════════════════════════════════════════════════════════════════

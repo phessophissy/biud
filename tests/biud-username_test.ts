@@ -786,6 +786,245 @@ describe("Event Emissions", () => {
 });
 
 // ════════════════════════════════════════════════════════════════════════════
+// SUBDOMAIN TESTS
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("Subdomain Support", () => {
+  it("should register a subdomain successfully", () => {
+    // Register parent
+    simnet.callPublicFn(contractName, "register-name", [Cl.stringUtf8("alice")], wallet1);
+    
+    // Register subdomain
+    const result = simnet.callPublicFn(
+      contractName,
+      "register-name",
+      [Cl.stringUtf8("sub.alice")],
+      wallet1
+    );
+    
+    expect(result.result).toBeOk(Cl.tuple({
+      "name-id": Cl.uint(2),
+      "full-name": Cl.stringUtf8("sub.alice.sBTC"),
+      "expiry-height": Cl.uint(simnet.blockHeight + 52560),
+      "fee-paid": Cl.uint(10000000)  // Same fee, not premium
+    }));
+  });
+
+  it("should fail to register subdomain if parent not owned", () => {
+    // Register parent by wallet1
+    simnet.callPublicFn(contractName, "register-name", [Cl.stringUtf8("alice")], wallet1);
+    
+    // Try to register subdomain by wallet2
+    const result = simnet.callPublicFn(
+      contractName,
+      "register-name",
+      [Cl.stringUtf8("sub.alice")],
+      wallet2
+    );
+    
+    expect(result.result).toBeErr(Cl.uint(1003)); // ERR_NOT_OWNER
+  });
+
+  it("should treat subdomain as non-premium", () => {
+    simnet.callPublicFn(contractName, "register-name", [Cl.stringUtf8("alice")], wallet1);
+    
+    // Check premium status
+    expect(
+      simnet.callReadOnlyFn(contractName, "is-premium-name", [Cl.stringUtf8("sub.alice")], wallet1).result
+    ).toBeBool(false);  // Longer than 4 chars
+  });
+
+  it("should allow renewal of subdomain", () => {
+    simnet.callPublicFn(contractName, "register-name", [Cl.stringUtf8("alice")], wallet1);
+    simnet.callPublicFn(contractName, "register-name", [Cl.stringUtf8("sub.alice")], wallet1);
+    
+    const result = simnet.callPublicFn(
+      contractName,
+      "renew-name",
+      [Cl.stringUtf8("sub.alice")],
+      wallet1
+    );
+    
+    expect(result.result).toBeOk(Cl.tuple({
+      "new-expiry-height": Cl.uint(simnet.blockHeight + 52560 + 52559),
+      "fee-paid": Cl.uint(5000000)
+    }));
+  });
+
+  it("should allow transfer of subdomain", () => {
+    simnet.callPublicFn(contractName, "register-name", [Cl.stringUtf8("alice")], wallet1);
+    simnet.callPublicFn(contractName, "register-name", [Cl.stringUtf8("sub.alice")], wallet1);
+    
+    const result = simnet.callPublicFn(
+      contractName,
+      "transfer-name",
+      [Cl.stringUtf8("sub.alice"), Cl.principal(wallet2)],
+      wallet1
+    );
+    
+    expect(result.result).toBeOk(Cl.bool(true));
+    
+    // Verify owner changed
+    expect(
+      simnet.callReadOnlyFn(contractName, "get-owner", [Cl.stringUtf8("sub.alice")], wallet1).result
+    ).toBeSome(Cl.principal(wallet2));
+  });
+
+  it("should validate subdomain format", () => {
+    // Invalid: empty subdomain
+    let result = simnet.callPublicFn(
+      contractName,
+      "register-name",
+      [Cl.stringUtf8(".alice")],  // starts with dot
+      wallet1
+    );
+    expect(result.result).toBeErr(Cl.uint(1005)); // ERR_INVALID_LABEL
+    
+    // Invalid: empty parent
+    result = simnet.callPublicFn(
+      contractName,
+      "register-name",
+      [Cl.stringUtf8("sub.")],  // ends with dot
+      wallet1
+    );
+    expect(result.result).toBeErr(Cl.uint(1005));
+    
+    // Valid format but parent doesn't exist
+    result = simnet.callPublicFn(
+      contractName,
+      "register-name",
+      [Cl.stringUtf8("sub.nonexistent")],
+      wallet1
+    );
+    expect(result.result).toBeErr(Cl.uint(1009)); // ERR_NAME_NOT_FOUND
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// BULK REGISTRATION TESTS
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("Bulk Registration", () => {
+  it("should register multiple names successfully", () => {
+    const labels = ["bulk1", "bulk2", "bulk3"];
+    const result = simnet.callPublicFn(
+      contractName,
+      "register-multiple-names",
+      [Cl.list(labels.map(l => Cl.stringUtf8(l)))],
+      wallet1
+    );
+    
+    expect(result.result).toBeOk(Cl.list([
+      Cl.tuple({
+        "name-id": Cl.uint(1),
+        "full-name": Cl.stringUtf8("bulk1.sBTC"),
+        "expiry-height": Cl.uint(simnet.blockHeight + 52560),
+        "fee-paid": Cl.uint(10000000)
+      }),
+      Cl.tuple({
+        "name-id": Cl.uint(2),
+        "full-name": Cl.stringUtf8("bulk2.sBTC"),
+        "expiry-height": Cl.uint(simnet.blockHeight + 52560),
+        "fee-paid": Cl.uint(10000000)
+      }),
+      Cl.tuple({
+        "name-id": Cl.uint(3),
+        "full-name": Cl.stringUtf8("bulk3.sBTC"),
+        "expiry-height": Cl.uint(simnet.blockHeight + 52560),
+        "fee-paid": Cl.uint(10000000)
+      })
+    ]));
+  });
+
+  it("should handle mixed successful and failed registrations", () => {
+    // Register one name first
+    simnet.callPublicFn(contractName, "register-name", [Cl.stringUtf8("exists")], wallet1);
+    
+    const labels = ["newname", "exists", "another"];
+    const result = simnet.callPublicFn(
+      contractName,
+      "register-multiple-names",
+      [Cl.list(labels.map(l => Cl.stringUtf8(l)))],
+      wallet1
+    );
+    
+    // The result should contain mixed ok/err
+    expect(result.result).toBeOk(Cl.list([
+      Cl.tuple({ // newname succeeds
+        "name-id": Cl.uint(2),
+        "full-name": Cl.stringUtf8("newname.sBTC"),
+        "expiry-height": Cl.uint(simnet.blockHeight + 52560),
+        "fee-paid": Cl.uint(10000000)
+      }),
+      Cl.uint(1001), // exists fails with ERR_NAME_TAKEN
+      Cl.tuple({ // another succeeds
+        "name-id": Cl.uint(3),
+        "full-name": Cl.stringUtf8("another.sBTC"),
+        "expiry-height": Cl.uint(simnet.blockHeight + 52560),
+        "fee-paid": Cl.uint(10000000)
+      })
+    ]));
+  });
+
+  it("should handle empty list", () => {
+    const result = simnet.callPublicFn(
+      contractName,
+      "register-multiple-names",
+      [Cl.list([])],
+      wallet1
+    );
+    
+    expect(result.result).toBeOk(Cl.list([]));
+  });
+
+  it("should register subdomains in bulk", () => {
+    // Register parent
+    simnet.callPublicFn(contractName, "register-name", [Cl.stringUtf8("parent")], wallet1);
+    
+    const labels = ["sub1.parent", "sub2.parent"];
+    const result = simnet.callPublicFn(
+      contractName,
+      "register-multiple-names",
+      [Cl.list(labels.map(l => Cl.stringUtf8(l)))],
+      wallet1
+    );
+    
+    expect(result.result).toBeOk(Cl.list([
+      Cl.tuple({
+        "name-id": Cl.uint(2),
+        "full-name": Cl.stringUtf8("sub1.parent.sBTC"),
+        "expiry-height": Cl.uint(simnet.blockHeight + 52560),
+        "fee-paid": Cl.uint(10000000)
+      }),
+      Cl.tuple({
+        "name-id": Cl.uint(3),
+        "full-name": Cl.stringUtf8("sub2.parent.sBTC"),
+        "expiry-height": Cl.uint(simnet.blockHeight + 52560),
+        "fee-paid": Cl.uint(10000000)
+      })
+    ]));
+  });
+
+  it("should fail bulk subdomain registration without parent ownership", () => {
+    // Register parent by wallet1
+    simnet.callPublicFn(contractName, "register-name", [Cl.stringUtf8("parent")], wallet1);
+    
+    // Try to register subdomains by wallet2
+    const labels = ["sub.parent"];
+    const result = simnet.callPublicFn(
+      contractName,
+      "register-multiple-names",
+      [Cl.list(labels.map(l => Cl.stringUtf8(l)))],
+      wallet2
+    );
+    
+    expect(result.result).toBeOk(Cl.list([
+      Cl.uint(1003) // ERR_NOT_OWNER
+    ]));
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
 // EDGE CASE TESTS
 // ════════════════════════════════════════════════════════════════════════════
 
