@@ -489,6 +489,15 @@
   )
 )
 
+;; Register multiple names in one transaction (up to 10)
+(define-private (register-name-wrapper (label (string-utf8 32)))
+  (register-name label)
+)
+
+(define-public (register-multiple-names (labels (list 10 (string-utf8 32))))
+  (ok (map register-name-wrapper labels))
+)
+
 ;; ════════════════════════════════════════════════════════════════════════════
 ;; PUBLIC FUNCTIONS - RENEWAL
 ;; ════════════════════════════════════════════════════════════════════════════
